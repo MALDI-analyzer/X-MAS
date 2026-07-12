@@ -779,7 +779,26 @@ export class MassFinderHelper {
         const adjustedTarget = targetMass - fixedNetMass;
 
         // 기존 calc()와 동일하게 가능한 갭 길이 범위를 계산하여 반복
-        const [minGapLen, maxGapLen] = this.getMinMaxRange(this.formyType, adjustedTarget);
+        const [minGapLen, maxGapLenBase] = this.getMinMaxRange(this.formyType, adjustedTarget);
+
+        // getMinMaxRange 는 아미노산 "전체" 질량(물 포함)으로 adjustedTarget 을 나눠 최대 갭 길이를 구한다.
+        // 하지만 실제 SA 목표는 saTargetMass = adjustedTarget + addWeight 이고(아래 :812-814), 각 갭 잔기는
+        // 펩타이드 결합마다 물 한 분자를 잃는다. 그래서 adjustedTarget 이 작으면(가벼운 잔기 하나짜리 내부 갭 등)
+        // maxGapLen 이 1 이 되어 gapLen=0(빈 갭)만 시도되고, 잔기가 들어가야 할 갭이 통째로 비어버린다
+        // (heavy ncAA 벤치마크 버그: gap=Gly/Ala 등에서 재현).
+        //
+        // 정확한 상한: n 개 갭 잔기가 가능하려면 n·minValue ≤ saTargetMass(n) 이어야 하고,
+        //   saTargetMass(n) = adjustedTarget + WATER·(n-1 + numFixedSegments)
+        // 를 풀면  n ≤ (adjustedTarget + WATER·(numFixedSegments-1)) / (minValue - WATER).
+        // 이 상한(포함)까지 루프가 돌도록 +1(exclusive 보정). Math.max 로 기존 값 이상만 보장 → template
+        // 결과를 줄이지 않는다. 공유 getMinMaxRange 와 비-template calc() 는 무변경.
+        const minAminoMass = Math.min(...Object.values(this.dataMap));
+        const residueMinMass = Math.max(1, minAminoMass - CHEMICAL_CONSTANTS.WATER_WEIGHT);
+        const numFixedSegments = templateData.fixedSegments.length;
+        const effectiveTarget = adjustedTarget + CHEMICAL_CONSTANTS.WATER_WEIGHT * Math.max(0, numFixedSegments - 1);
+        // +1e-6: 잔기 하나가 딱 맞는 경계(예: 터미널 갭의 가장 가벼운 잔기)에서 부동소수점 오차로 floor 가
+        // 한 단계 낮아져 gapLen=1 이 잘리는 것을 막는다. +1 은 exclusive 루프 보정.
+        const maxGapLen = Math.max(maxGapLenBase, Math.floor(effectiveTarget / residueMinMass + 1e-6) + 1);
 
         let bestSolutions: AminoModel[] = [];
 
