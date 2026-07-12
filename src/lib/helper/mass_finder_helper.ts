@@ -779,7 +779,17 @@ export class MassFinderHelper {
         const adjustedTarget = targetMass - fixedNetMass;
 
         // 기존 calc()와 동일하게 가능한 갭 길이 범위를 계산하여 반복
-        const [minGapLen, maxGapLen] = this.getMinMaxRange(this.formyType, adjustedTarget);
+        const [minGapLen, maxGapLenBase] = this.getMinMaxRange(this.formyType, adjustedTarget);
+
+        // getMinMaxRange 는 아미노산 "전체" 질량(물 포함)으로 나눠 최대 갭 길이를 구하지만,
+        // 갭에 들어가는 각 잔기는 펩타이드 결합마다 물 한 분자를 잃는다(아래 saTargetMass 가 addWeight 로
+        // 되돌려 준다). 이 때문에 adjustedTarget 이 가장 가벼운 아미노산 질량보다 작으면 maxGapLen 이 1 이
+        // 되어 gapLen=0(빈 갭)만 시도되고, 실제로는 잔기 하나가 들어가야 할 갭이 통째로 비어버린다
+        // (heavy ncAA 벤치마크 버그). 잔기 질량(전체 질량 - 물) 기준으로 상한을 보정한다.
+        // 항상 기존 값 이상이므로(더 작은 수로 나눔) 기존 template 결과를 줄이지 않는다.
+        const minAminoMass = Math.min(...Object.values(this.dataMap));
+        const residueMinMass = Math.max(1, minAminoMass - CHEMICAL_CONSTANTS.WATER_WEIGHT);
+        const maxGapLen = Math.max(maxGapLenBase, Math.ceil(adjustedTarget / residueMinMass));
 
         let bestSolutions: AminoModel[] = [];
 
