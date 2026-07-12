@@ -576,21 +576,28 @@ export class MassFinderHelper {
     }
 
     /// 기존 베스트 솔루션 에서 init 값을 앞에 붙여주는 로직
-    setInitAminoToResult(bestSolutions: AminoModel[], initAmino: string, initAminoWeight: { monoisotopicWeight: number, molecularWeight: number }): AminoModel[] {
+    // initAminoWeight 파라미터는 하위 호환용으로 유지(현재는 full code 재계산으로 대체됨).
+    setInitAminoToResult(bestSolutions: AminoModel[], initAmino: string, _initAminoWeight: { monoisotopicWeight: number, molecularWeight: number }): AminoModel[] {
         if (!initAmino) return bestSolutions;
         return bestSolutions.map(item => {
-            const weight = (item.weight ?? 0) + initAminoWeight.monoisotopicWeight;
-            const molecularWeight = (item.molecularWeight ?? 0) + initAminoWeight.molecularWeight;
+            // 전체 코드 조립 (기존과 동일한 규칙: formylation 'f' 는 맨 앞 유지)
+            let code: string;
             if (!item.code) {
-                return new AminoModel({ ...item, code: initAmino, weight: weight, molecularWeight: molecularWeight });
+                code = initAmino;
+            } else if (item.code[0] === 'f') {
+                code = `f${initAmino}${item.code.slice(1)}`;
             } else {
-                const firstString = item.code[0];
-                if (firstString === 'f') {
-                    return new AminoModel({ ...item, code: `f${initAmino}${item.code.slice(1)}`, weight: weight, molecularWeight: molecularWeight });
-                } else {
-                    return new AminoModel({ ...item, code: `${initAmino}${item.code}`, weight: weight, molecularWeight: molecularWeight });
-                }
+                code = `${initAmino}${item.code}`;
             }
+            // 조립된 full code 기준으로 질량 재계산.
+            // 기존엔 gap weight + initAminoWeight 를 단순 합산했는데, gap weight 에는 이미 SA 타겟에 더해진
+            // connectionWater(init↔gap 결합 물, calc() :122)가 반영돼 있어, 두 파트를 한 펩타이드로 이을 때
+            // 결합 하나의 물 손실이 이중으로 빠지지 않아 결과 질량이 물 한 분자(18.01)만큼 높게 나왔다.
+            // template 경로(assembleTemplateResult)와 동일하게 full code 로 재계산해 정확한 질량을 낸다.
+            // (프로덕션 워커는 knownSequence='' 라 이 경로 미도달 — 직접 API 호출 시에만 관여.)
+            const weight = this.getMonoisotopicWeightSum(code);
+            const molecularWeight = this.getMolecularWeightSum(code);
+            return new AminoModel({ ...item, code, weight, molecularWeight });
         });
     }
 
