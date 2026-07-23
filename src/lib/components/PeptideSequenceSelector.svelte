@@ -19,17 +19,31 @@
   /** @type {{ [aa: string]: boolean }} Amino acids set 체크박스 상태 (자연 라디오 disabled 결정) */
   export let selectedAminoSet = {};
 
+  // v1.1.0: RF-비활성 + ncAA 미지정 stop codon 위치. 특수 상태(주황 대각선)로 표시하고
+  // ncAA 위치 토글에서 제외한다. (PDF stop codon 요구 7)
+  /** @type {Set<number>} */
+  export let specialStopPositions = new Set();
+
   /** @type {import('../../type/SequenceTemplate').PositionState[]} */
   let positionStates = [];
 
   /** @type {import('../../type/SequenceTemplate').NcAAZone[]} */
   let ncaaZones = [];
 
+  // 각 위치가 속한 zone 인덱스 (green = -1). 인접한 두 variable 영역의 zone 이 다르면
+  // 그 경계에 구분선(divider)을 그려 겹침/맞닿음 모호성을 해소한다. (PDF 요구 2)
+  /** @type {number[]} */
+  let zoneIdByPosition = [];
+
   // 팝오버 상태
   /** @type {number | null} 현재 열린 팝오버의 위치 인덱스 */
   let popoverPosition = null;
   /** @type {{ top: number, left: number }} */
   let popoverAnchor = { top: 0, left: 0 };
+
+  // 타일 컨테이너 참조 (드래그 시 nearest-tile 폴백용)
+  /** @type {HTMLElement} */
+  let tilesContainer;
 
   // 드래그 상태
   let dragging = false;
@@ -40,7 +54,8 @@
   let dragStartY = 0;
   let dragStartCount = 0;
 
-  const DEFAULT_YELLOW_COUNT = 3;
+  // ncAA 선택 시 좌우로 기본 노출되는 variable(노랑) 칸 수. (PDF 요구: 3 → 1)
+  const DEFAULT_YELLOW_COUNT = 1;
 
   // aminoSequence가 변경되면 상태 초기화
   $: if (aminoSequence) {
@@ -53,6 +68,7 @@
 
   function resetStates(seq) {
     positionStates = new Array(seq.length).fill('green');
+    zoneIdByPosition = new Array(seq.length).fill(-1);
     ncaaZones = [];
     dispatchChange();
   }
@@ -65,6 +81,8 @@
       dragMoved = false;
       return;
     }
+    // 특수 상태(미해결 stop) 자리는 ncAA 위치 토글 대상이 아님 — codon 할당으로만 해결
+    if (specialStopPositions.has(index)) return;
 
     // v2.1: 후보 ≥ 2 인 자리는 팝오버를 열고 manual-zone 토글은 건너뜀.
     if (multiCandidatePositions.has(index)) {
@@ -149,16 +167,19 @@
   function recalcPositionStates() {
     if (!aminoSequence) return;
     const states = new Array(aminoSequence.length).fill('green');
+    const zoneIds = new Array(aminoSequence.length).fill(-1);
 
-    for (const zone of ncaaZones) {
+    ncaaZones.forEach((zone, zi) => {
       // 빨간색
       states[zone.ncaaIndex] = 'red';
+      zoneIds[zone.ncaaIndex] = zi;
 
       // 왼쪽 노란색
       for (let i = 1; i <= zone.leftYellowCount; i++) {
         const idx = zone.ncaaIndex - i;
         if (idx >= 0 && states[idx] !== 'red') {
           states[idx] = 'yellow';
+          zoneIds[idx] = zi;
         }
       }
 
@@ -167,11 +188,13 @@
         const idx = zone.ncaaIndex + i;
         if (idx < aminoSequence.length && states[idx] !== 'red') {
           states[idx] = 'yellow';
+          zoneIds[idx] = zi;
         }
       }
-    }
+    });
 
     positionStates = states;
+    zoneIdByPosition = zoneIds;
   }
 
   // 드래그 시작 (노란 영역 경계)
@@ -205,14 +228,19 @@
     const dy = clientY - dragStartY;
     if (Math.sqrt(dx * dx + dy * dy) > 4) dragMoved = true;
 
-    // 마우스 아래 타일을 찾아 절대 인덱스 기반으로 노란 영역 갱신 (줄바꿈 대응)
+    // 커서 아래 타일을 절대 인덱스로 찾음. 줄바꿈 경계에서는 축소하려면 커서가 줄 밖 빈
+    // 공간으로 나가는데, 그 지점엔 타일이 없어 elementFromPoint 가 실패한다(줄바꿈 드래그
+    // 버그). 이 경우 가장 가까운 타일로 폴백해 경계 조정이 계속 동작하게 한다.
+    let hoverIndex = -1;
     const el = document.elementFromPoint(clientX, clientY);
     const tileEl = el && el.closest ? el.closest('.tile') : null;
-    if (!tileEl) return;
-    const hoverIndexAttr = tileEl.getAttribute('data-index');
-    if (hoverIndexAttr === null) return;
-    const hoverIndex = parseInt(hoverIndexAttr, 10);
-    if (Number.isNaN(hoverIndex)) return;
+    const hoverIndexAttr = tileEl ? tileEl.getAttribute('data-index') : null;
+    if (hoverIndexAttr !== null) {
+      hoverIndex = parseInt(hoverIndexAttr, 10);
+    } else {
+      hoverIndex = findNearestTileIndex(clientX, clientY);
+    }
+    if (hoverIndex < 0 || Number.isNaN(hoverIndex)) return;
 
     const zone = ncaaZones[dragZoneIndex];
 
@@ -238,6 +266,30 @@
     ncaaZones = [...ncaaZones];
     recalcPositionStates();
     dispatchChange();
+  }
+
+  // 커서 좌표에서 가장 가까운 타일의 절대 인덱스를 반환 (elementFromPoint 실패 시 폴백).
+  // 각 타일 rect 에 좌표를 clamp 한 거리로 최근접을 고르므로, 줄 밖/줄 사이 빈 공간에서도
+  // 그 줄의 첫/끝 타일로 자연스럽게 수렴한다.
+  function findNearestTileIndex(x, y) {
+    if (!tilesContainer) return -1;
+    const tiles = tilesContainer.querySelectorAll('.tile[data-index]');
+    let best = -1;
+    let bestDist = Infinity;
+    for (const t of tiles) {
+      const r = t.getBoundingClientRect();
+      const cx = Math.max(r.left, Math.min(x, r.right));
+      const cy = Math.max(r.top, Math.min(y, r.bottom));
+      const ddx = x - cx;
+      const ddy = y - cy;
+      const d = ddx * ddx + ddy * ddy;
+      if (d < bestDist) {
+        bestDist = d;
+        const attr = t.getAttribute('data-index');
+        best = attr !== null ? parseInt(attr, 10) : best;
+      }
+    }
+    return best;
   }
 
   function handleDragEnd() {
@@ -363,25 +415,36 @@
       </small>
     </div>
 
-    <div class="sequence-tiles" role="group" aria-label="Peptide sequence selector">
+    <div class="sequence-tiles" role="group" aria-label="Peptide sequence selector" bind:this={tilesContainer}>
       {#each aminoSequence.split('') as amino, index}
         {@const state = positionStates[index] || 'green'}
         {@const handle = getDragHandle(index)}
         {@const isAutoSub = autoSubPositions.has(index)}
         {@const isMulti = multiCandidatePositions.has(index)}
+        {@const isSpecialStop = specialStopPositions.has(index)}
+        {@const zoneDivider =
+          index > 0 &&
+          state !== 'green' &&
+          positionStates[index - 1] !== undefined &&
+          positionStates[index - 1] !== 'green' &&
+          zoneIdByPosition[index] >= 0 &&
+          zoneIdByPosition[index - 1] >= 0 &&
+          zoneIdByPosition[index] !== zoneIdByPosition[index - 1]}
         <div
           class="tile tile-{state}"
-          class:tile-drag-handle={handle !== null}
+          class:tile-drag-handle={handle !== null && !isSpecialStop}
           class:tile-auto-sub={isAutoSub && state === 'green'}
           class:tile-multi={isMulti}
+          class:tile-special-stop={isSpecialStop}
+          class:tile-zone-divider={zoneDivider}
           data-index={index}
           role="button"
           tabindex="0"
-          aria-label="Position {index + 1}: {amino} ({state}{isAutoSub ? ', auto-substituted' : ''}{isMulti ? ', multiple candidates' : ''})"
+          aria-label="Position {index + 1}: {amino} ({isSpecialStop ? 'unassigned stop codon' : state}{isAutoSub ? ', auto-substituted' : ''}{isMulti ? ', multiple candidates' : ''})"
           on:click={(e) => handleAminoClick(index, e)}
           on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleAminoClick(index, e); }}
-          on:mousedown={(e) => { if (handle) handleDragStart(e, handle.zoneIndex, handle.side); }}
-          on:touchstart={(e) => { if (handle) handleDragStart(e, handle.zoneIndex, handle.side); }}
+          on:mousedown={(e) => { if (handle && !isSpecialStop) handleDragStart(e, handle.zoneIndex, handle.side); }}
+          on:touchstart={(e) => { if (handle && !isSpecialStop) handleDragStart(e, handle.zoneIndex, handle.side); }}
         >
           <span class="tile-index">{index + 1}</span>
           <span class="tile-amino">{amino}</span>
@@ -498,6 +561,24 @@
     color: #4a148c;
   }
 
+  /* v1.1.0: 미해결 stop codon (RF-비활성 + ncAA 미지정). 주황 대각선 줄무늬로 "ncAA 할당 필요" 강조.
+     green/red/yellow 상태 위에 덧입혀지며 최우선 표시. */
+  .tile-special-stop {
+    background-color: #ffe0b2 !important;
+    background-image: repeating-linear-gradient(
+      45deg,
+      transparent,
+      transparent 4px,
+      rgba(230, 81, 0, 0.35) 4px,
+      rgba(230, 81, 0, 0.35) 8px
+    ) !important;
+    border-color: #e65100 !important;
+    border-style: dashed !important;
+    border-width: 2px !important;
+    color: #bf360c !important;
+    cursor: not-allowed;
+  }
+
   .tile-arrow {
     position: absolute;
     bottom: -2px;
@@ -518,6 +599,20 @@
 
   .tile-drag-handle {
     cursor: ew-resize;
+  }
+
+  /* v1.1.0: 서로 다른 ncAA zone 의 variable 영역이 맞닿는 경계에 세로 구분선.
+     .tile 이 position:relative 이므로 왼쪽 2px gap 안에 divider 를 띄운다. (PDF 요구 2) */
+  .tile-zone-divider::after {
+    content: '';
+    position: absolute;
+    left: -2px;
+    top: 3px;
+    bottom: 3px;
+    width: 2px;
+    background: #455a64;
+    border-radius: 1px;
+    pointer-events: none;
   }
 
   .tile-yellow.tile-drag-handle {

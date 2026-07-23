@@ -830,6 +830,15 @@
                   <li><img src="/manual/image40.png" alt="Save" class="tool-icon" /> <strong>Save:</strong> Sequences are saved locally for reuse</li>
                   <li><img src="/manual/image41.png" alt="Load" class="tool-icon" /> <strong>Load:</strong> Previously saved sequences are loaded for use.</li>
                 </ul>
+
+                <p class="mt-3"><strong>Narrow search space:</strong> The translated peptide is shown as a tile map. Click a residue to mark it as an ncAA position; by default one variable (yellow) tile is exposed on each side, and you can drag the yellow edges to widen or shrink the variable region. When two ncAA regions meet, a divider line marks the boundary between them.</p>
+
+                <p><strong>Release factor &amp; stop codons:</strong> When the RNA contains a stop codon, the <strong>Release factor</strong> selector controls which stop codons actually terminate translation (<strong>RF1</strong>: UAA, UAG; <strong>RF2</strong>: UAA, UGA).</p>
+                <ul>
+                  <li>A stop codon assigned to an ncAA is <strong>read through</strong> — the ncAA is incorporated and translation continues (amber/ochre/opal suppression).</li>
+                  <li>A stop codon recognized by an active release factor with no ncAA <strong>terminates</strong> translation there.</li>
+                  <li>A stop codon <em>not</em> recognized by any active release factor and with no ncAA is left as an <strong>unassigned position</strong> (orange striped tile). Assign an ncAA to it before calculating.</li>
+                </ul>
               </div>
             </div>
           </div>

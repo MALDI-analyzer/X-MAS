@@ -7,6 +7,7 @@
   import InitialRnaInput from "$lib/components/InitialRnaInput.svelte";
   import SAIterationSlider from "$lib/components/SAIterationSlider.svelte";
   import PeptideSequenceSelector from "$lib/components/PeptideSequenceSelector.svelte";
+  import ReleaseFactorSelector from "$lib/components/stm/ReleaseFactorSelector.svelte";
   import { getContext, onDestroy } from "svelte";
   import { writable } from "svelte/store";
   import { showAlert } from "$lib/stores/alertStore.js";
@@ -49,6 +50,17 @@
   // 슬롯 letter 순서 (B→J→O→U→X→Z) — "더 먼저 선택된 ncAA" 정의
   const SLOT_ORDER = ['B', 'J', 'O', 'U', 'X', 'Z'];
   const STANDARD_AA_LETTERS = ['G','A','S','T','C','V','L','I','M','P','F','Y','W','D','E','N','Q','H','K','R'];
+
+  // Release factor 로 활성화된 stop codon (기본: RF1+RF2 → 3개 모두). STM 과 동일 패턴.
+  // 활성 stop 은 번역을 종료(truncate)시키고, 비활성 stop 은 readthrough 대기(특수 상태)로 처리.
+  let activeStopCodons = ['UAA', 'UAG', 'UGA'];
+  function handleReleaseFactorChange(e) {
+    activeStopCodons = e.detail;
+  }
+
+  // RF-비활성 + ncAA 미지정인 stop codon 자리에 넣는 특수 placeholder (readthrough 대기 표시).
+  // 이 문자가 있으면 계산은 차단된다(질량 미정의 방지).
+  const STOP_PLACEHOLDER = '*';
 
   onDestroy(() => {
     if (worker) {
@@ -224,8 +236,32 @@
     //   return false;
     // }
 
-    if (!validatePeptideSequence()) {
+    if (!(await validatePeptideSequence())) {
       await showAlert("Please enter the correct Peptide sequence", "Validation Error", "warning");
+      return false;
+    }
+
+    // Stop codon 가드 (PDF 요구 7): 미해결 stop codon 이 있으면 계산 차단.
+    //  - RF 활성 stop + ncAA 미지정 → 번역이 끊김 → ncAA 할당 또는 RF 해제 요구
+    if (translationInfo.truncatedAtActiveStop) {
+      const { pos, codon } = translationInfo.truncatedAtActiveStop;
+      await showAlert(
+        `Stop codon ${codon} at position ${pos + 1} is recognized by an active release factor and terminates translation. Assign an ncAA to read through it, or turn off its release factor.`,
+        "Stop codon",
+        "warning",
+      );
+      return false;
+    }
+    //  - RF 비활성 stop + ncAA 미지정 → 잔기 미정의(특수 상태) → ncAA 할당 요구
+    if (translationInfo.specialStopPositions.size > 0) {
+      const list = Array.from(translationInfo.specialStopPositions)
+        .map((p) => p + 1)
+        .join(", ");
+      await showAlert(
+        `Stop codon(s) at position(s) ${list} have no assigned ncAA. Assign an ncAA to each stop codon to define its residue before calculating.`,
+        "Stop codon",
+        "warning",
+      );
       return false;
     }
 
@@ -233,7 +269,12 @@
   }
 
   // v2.1: ncAA codon 치환 + position override + stop suppression 지원.
-  // helper 의 동일 함수와 시그니처 일치 (mass_finder_helper.ts:262 참조).
+  // v1.1.0: Release factor(activeStopCodons) 인지 추가 (PDF stop codon 요구).
+  //   - stop + ncAA 지정 → readthrough (해당 ncAA letter, 뒤 시퀀스 계속) [요구 8]
+  //   - stop + ncAA 없음 + RF 활성 → 번역 종료 (break, 자연 종결) [요구 6]
+  //   - stop + ncAA 없음 + RF 비활성 → STOP_PLACEHOLDER 삽입 후 계속 (readthrough 대기) [요구 7]
+  // NOTE: helper 의 convertRnaToAminoAcids 는 RF 미인지(legacy). MTS UI 는 이 페이지 버전을
+  //   진실 공급원으로 쓰고, 미해결 stop 은 계산 전에 차단하므로 helper 로 * 가 흘러가지 않는다.
   function convertRnaToAminoAcids(rnaSequence, options) {
     if (!rnaSequence) return "";
 
@@ -242,6 +283,7 @@
     const excluded = opts.excludedAA || new Set();
     const codonMap = opts.ncaaCodonMap || {};
     const overrides = opts.positionOverrides || {};
+    const activeStops = new Set(opts.activeStopCodons || ['UAA', 'UAG', 'UGA']);
 
     let aminoSequence = "";
 
@@ -260,9 +302,11 @@
 
       if (natural === "[Stop]") {
         if (candidates.length > 0) {
-          aminoSequence += candidates[0].letter; // amber/ochre/opal suppression
+          aminoSequence += candidates[0].letter; // amber/ochre/opal suppression (readthrough)
+        } else if (activeStops.has(codon)) {
+          break; // RF 활성 stop → 자연 종결(truncate)
         } else {
-          break;
+          aminoSequence += STOP_PLACEHOLDER; // RF 비활성 + 미지정 → 특수 상태(대기)
         }
       } else if (natural && excluded.has(natural) && candidates.length > 0) {
         aminoSequence += candidates[0].letter; // 자동 치환 (첫 후보)
@@ -346,8 +390,36 @@
         excludedAA,
         ncaaCodonMap,
         positionOverrides,
+        activeStopCodons,
       })
     : "";
+
+  // stop codon 미해결 상태 스캔 (convertRnaToAminoAcids 의 분기와 동일 순서로 미러링).
+  //  - specialStopPositions: RF 비활성 + ncAA 미지정 stop 위치 (특수 상태 표시 대상)
+  //  - truncatedAtActiveStop: RF 활성 + ncAA 미지정으로 번역이 끊긴 첫 stop {pos, codon} (없으면 null)
+  // 인덱스는 codon index = convertedAminoSequence 의 char index (codon 1개 → char 1개, 종결 전까지).
+  $: translationInfo = (() => {
+    const specialStopPositions = new Set();
+    /** @type {{ pos: number, codon: string } | null} */
+    let truncatedAtActiveStop = null;
+    if (!proteinSequence) return { specialStopPositions, truncatedAtActiveStop };
+    const codons = proteinSequence.match(/.{1,3}/g) || [];
+    const activeSet = new Set(activeStopCodons);
+    for (let i = 0; i < codons.length; i++) {
+      const codon = codons[i];
+      if (codon.length !== 3) continue;
+      if (positionOverrides[i] !== undefined) continue; // override → stop 아님
+      if (codonTableRtoS[codon] !== "[Stop]") continue;
+      const hasNcAA = (ncaaCodonMap[codon] || []).length > 0;
+      if (hasNcAA) continue; // readthrough → 해결됨
+      if (activeSet.has(codon)) {
+        truncatedAtActiveStop = { pos: i, codon }; // 여기서 번역 종료
+        break;
+      }
+      specialStopPositions.add(i); // RF 비활성 → 특수 상태
+    }
+    return { specialStopPositions, truncatedAtActiveStop };
+  })();
 
   // PeptideSequenceSelector 에 전달할 보조 정보:
   //  - autoSubPositions: 자동 치환된 위치 (보라 테두리 대상)
@@ -452,6 +524,14 @@
     on:input={(e) => (proteinSequence = e.detail.value)}
   />
 
+  <!-- Release factor: 어떤 stop codon 이 실제로 번역을 종료시키는지 결정 (RF1: UAA/UAG, RF2: UAA/UGA).
+       RNA 가 입력된 경우에만 노출. 비활성 stop 은 readthrough 대기(특수 상태)로 처리된다. -->
+  {#if hasReferenceSequence}
+    <div class="mb-3">
+      <ReleaseFactorSelector on:change={handleReleaseFactorChange} />
+    </div>
+  {/if}
+
   <!-- RNA 번역 펩타이드 시퀀스 맵: ncAA 위치 선택 및 Fixed/Variable 영역 시각화 -->
   <PeptideSequenceSelector
     aminoSequence={convertedAminoSequence}
@@ -459,6 +539,7 @@
     multiCandidatePositions={substitutionInfo.multiCandidatePositions}
     candidatesByPosition={substitutionInfo.candidatesByPosition}
     naturalByPosition={substitutionInfo.naturalByPosition}
+    specialStopPositions={translationInfo.specialStopPositions}
     selectedAminoSet={selectedMonoisotopicAminos}
     on:change={handleTemplateChange}
     on:override={handleOverride}

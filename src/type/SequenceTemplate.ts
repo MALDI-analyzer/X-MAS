@@ -4,8 +4,8 @@ export type PositionState = 'green' | 'yellow' | 'red';
 // A single ncAA zone: the red position and its yellow neighborhood extents
 export interface NcAAZone {
     ncaaIndex: number;         // Index of the red (ncAA) position
-    leftYellowCount: number;   // Number of yellow positions to the left (default 3, min 0)
-    rightYellowCount: number;  // Number of yellow positions to the right (default 3, min 0)
+    leftYellowCount: number;   // Number of yellow positions to the left (default 1, min 0)
+    rightYellowCount: number;  // Number of yellow positions to the right (default 1, min 0)
 }
 
 // A contiguous fixed (green) segment within the sequence
