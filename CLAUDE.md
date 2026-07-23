@@ -2,6 +2,38 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 세션 & 작업 필수 규칙 (MANDATORY)
+
+이 저장소에서 작업할 때 **항상** 아래 세 규칙을 지킬 것. 하나라도 빠뜨리면 안 된다.
+
+### 1. 세션 시작 시 — LLM 위키를 먼저 읽는다
+
+- **모든 세션은 `.omc/wiki/` 의 LLM 위키를 읽는 것으로 시작한다.** 최소한 `.omc/wiki/index.md`(전체 카탈로그)를 읽고, 이번 작업이 건드릴 기능의 페이지들을 읽은 뒤 코드에 손대기 시작할 것.
+- 위키는 **실제 코드 기준의 진실 공급원(SSOT)** 이다. 분기/케이스/공식/라인 참조가 정리돼 있으므로, 코드를 탐색하기 전 위키에서 맥락을 먼저 확보한다.
+- 위키가 `.md` 문서나 기억과 어긋나면 **코드 → 위키 → 그 외 순서로 신뢰**하고, 어긋난 지점은 [[documentation-vs-code-discrepancies]] 에 기록한다.
+
+### 2. 작업 반영 전 — 반드시 테스트를 거친다 (무조건)
+
+코드/동작 변경을 **커밋하거나 완료로 보고하기 전**, 예외 없이 아래 검증을 통과시킨다:
+
+| 검증 | 명령 / 방법 | 기준 |
+|------|-------------|------|
+| 타입 체크 | `npx tsc --noEmit -p tsconfig.json` | `error TS` 0건 |
+| 빌드 | `npm run build` | 성공(exit 0) |
+| 순수 로직 변경(질량 공식·매핑·번역·SA 파라미터 등) | Node 스크립트로 예상 입출력 재현 검증 | 기대값과 일치 |
+| UI/상호작용 변경 | 가능하면 `npm run dev` 로 실제 화면 확인. 브라우저 불가 시 그 한계를 명시 | 관찰된 동작 = 기대 동작 |
+| 관련 시나리오 | `docs/test-cases.md` 의 영향받는 `TC-*` 케이스를 수동 점검 | 통과 |
+
+> 검증 없이 "완료/수정됨" 이라고 보고하지 않는다. 브라우저 검증을 못 했으면 **그 한계를 반드시 명시**한다.
+
+### 3. 동작이 바뀌면 — 테스트케이스를 함께 수정한다
+
+- **동작·분기·공식·검증 규칙이 바뀐 코드 변경은 `docs/test-cases.md` 갱신을 한 묶음으로 처리한다.** (신규 분기 → `TC-*` 추가 / 변경 → 기존 케이스 수정 / 제거 → 케이스 삭제)
+- 갱신 시: 영향받는 케이스의 **Expected·Steps·Ref(`file:line`)** 를 실제 코드에 맞추고, 상단 **커버리지 요약 표의 케이스 수 합계**를 일치시킨다.
+- 케이스 포맷은 기존과 동일하게 유지: `Area / Type / Precondition / Steps / Expected / Ref`.
+
+> **코드 PR = 코드 변경 + 테스트 통과 + `docs/test-cases.md` 갱신 + 위키 갱신([[Wiki Maintenance]] 참조)** 을 한 번에 처리한다. 넷 중 하나라도 빠지면 미완료다.
+
 ## Project Overview
 
 X-MAS is a specialized biochemical analysis web application for molecular weight and amino acid sequence interconversion. It serves biochemical researchers with high-performance calculations using simulated annealing algorithms and web workers.
