@@ -114,27 +114,35 @@ export const PERFORMANCE_CONFIG = {
 } as const;
 
 /**
- * 알고리즘 모드별 설정
+ * MTS Iteration 슬라이더 설정
+ *
+ * Benchmark 조사 결과 온도(temperature)는 결과에 유의미한 영향이 없고 iteration 만
+ * 영향이 있음이 드러났다. 그래서 MTS UI 는 온도를 Standard 값으로 고정하고 iteration
+ * 만 슬라이더로 노출한다(SAIterationSlider.svelte). 온도 3종을 바꾸던 기존 3-모드
+ * 라디오(Standard/Think/Deep think)는 이 앵커 기반 슬라이더로 대체.
+ *
+ * 슬라이더 위치 t∈[0,1] → iteration 매핑은 구간별 기하(로그) 보간이며 Standard 가
+ * 정확히 midpoint(t=0.5)에 온다:
+ *   t∈[0,0.5]   iter = FAST     · (STANDARD/FAST)^(2t)          // 100 → 1000
+ *   t∈[0.5,1]   iter = STANDARD · (DEEPTHINK/STANDARD)^(2t-1)   // 1000 → 50000
  */
-export const SA_MODES = {
-  FAST: {
-    label: 'Fast',
-    initialTemperature: 5000,
-    coolingRate: 0.95,
-    iterations: 50,
-  },
-  NORMAL: {
-    label: 'Normal',
-    initialTemperature: 10000,
-    coolingRate: 0.99,
-    iterations: 100,
-  },
-  ACCURATE: {
-    label: 'Accurate',
-    initialTemperature: 15000,
-    coolingRate: 0.995,
-    iterations: 150,
-  },
+export const SA_ITERATION_ANCHORS = {
+  /** 슬라이더 최좌측(Fast) — 가장 빠른 저정밀 */
+  FAST: 100,
+  /** 슬라이더 중앙(Standard) — 기본값 */
+  STANDARD: 1000,
+  /** 슬라이더 최우측(Deep think) — 최대 정밀, 최장 소요 */
+  DEEPTHINK: 50000,
 } as const;
 
-export type SAMode = keyof typeof SA_MODES;
+/**
+ * MTS SA 고정 온도 파라미터 (Standard 기준으로 고정)
+ *
+ * 온도가 결과에 무의미하므로 슬라이더는 iteration 만 조절하고 아래 값은 항상 고정으로
+ * 워커에 전달된다. 값은 기존 Standard 프리셋과 동일.
+ */
+export const SA_FIXED_TEMPERATURE = {
+  initialTemperature: 10000,
+  absoluteTemperature: 0.001,
+  coolingRate: 0.99,
+} as const;

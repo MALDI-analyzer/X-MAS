@@ -5,7 +5,7 @@
   import NcAACodonSelector from "$lib/components/NcAACodonSelector.svelte";
   import ResultTable from "$lib/components/ResultTable.svelte";
   import InitialRnaInput from "$lib/components/InitialRnaInput.svelte";
-  import SAModeSelector from "$lib/components/SAModeSelector.svelte";
+  import SAIterationSlider from "$lib/components/SAIterationSlider.svelte";
   import PeptideSequenceSelector from "$lib/components/PeptideSequenceSelector.svelte";
   import { getContext, onDestroy } from "svelte";
   import { writable } from "svelte/store";
@@ -21,11 +21,11 @@
   let proteinSequence = "";
   let formylation = "unknown";
   let adduct = "+H";
-  // SA 모드 설정 (기본값: Think)
+  // SA 설정 (기본값: Standard). 온도는 고정, iteration 만 SAIterationSlider 가 조절.
   let saConfig = {
     initialTemperature: 10000,
     absoluteTemperature: 0.001,
-    saIterations: 50
+    saIterations: 1000
   };
   /** @type {{ [key: string]: number }} */
   let selectedMonoisotopicAminos = { ...aminoMap };
@@ -487,7 +487,7 @@
   </div>
 
   <div class="mb-3">
-    <SAModeSelector on:change={(e) => handleSAModeChange(e.detail)} />
+    <SAIterationSlider on:change={(e) => handleSAModeChange(e.detail)} />
   </div>
 
   <!-- 필수 아미노산 선택 -->
