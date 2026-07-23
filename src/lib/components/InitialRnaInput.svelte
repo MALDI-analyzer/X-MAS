@@ -14,10 +14,14 @@
   let showSaveDialog = false;
   let showLoadDialog = false;
 
+  // DNA/RNA 입력 정규화: 대문자화 + 공백·개행 제거 + T→U (DNA→RNA).
+  // STM SeqConverter 와 동일 규칙 — 타이핑/붙여넣기/Load 모든 경로에서 공통 사용.
+  function normalizeRnaInput(raw) {
+    return (raw || '').toUpperCase().replace(/\s/g, '').replace(/T/g, 'U');
+  }
+
   function handleInput(event) {
-    const input = event.target;
-    // T를 U로 자동 변환 (DNA → RNA)
-    value = input.value.toUpperCase().replace(/T/g, 'U');
+    value = normalizeRnaInput(event.target.value);
     dispatch('input', { value });
   }
 
@@ -78,7 +82,8 @@
   }
 
   function handleLoad(event) {
-    value = event.detail.content;
+    // Load 한 시퀀스도 동일 정규화 (저장된 DNA 를 불러와도 T→U 적용). STM 과 동일.
+    value = normalizeRnaInput(event.detail.content);
     dispatch('input', { value });
   }
 
