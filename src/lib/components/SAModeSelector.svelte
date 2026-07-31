@@ -4,7 +4,7 @@
   import { storage } from '$lib/services/storage.service';
 
   const dispatch = createEventDispatcher();
-  
+
   // SA 모드 설정
   const saConfigs = {
     standard: {
@@ -12,44 +12,93 @@
       description: 'Balanced calculation with moderate exploration',
       initialTemperature: 10000,
       absoluteTemperature: 0.001,
-      saIterations: 100
+      saIterations: 100,
+      coolingRate: 0.99
     },
     think: {
       label: 'Think',
       description: 'Thorough calculation with extensive exploration',
       initialTemperature: 50000,
       absoluteTemperature: 0.00001,
-      saIterations: 100
+      saIterations: 100,
+      coolingRate: 0.99
     },
     deepthink: {
       label: 'Deep think',
       description: 'Advanced reasoning with profound exploration',
       initialTemperature: 100000,
       absoluteTemperature: 0.000001,
-      saIterations: 100
+      saIterations: 100,
+      coolingRate: 0.99
+    },
+    custom: {
+      label: 'Custom',
+      description: 'Manually tune all SA parameters',
+      initialTemperature: 10000,
+      absoluteTemperature: 0.001,
+      saIterations: 100,
+      coolingRate: 0.99
     }
   };
 
   // 기본값: Standard
   export let selectedMode = 'standard';
-  
+
+  // customizable=true 일 때만 SA 파라미터 input 노출
+  export let customizable = false;
+
+  // 현재 적용 중인 값 (custom 일 때만 input 으로 직접 편집 가능)
+  let initialTemperature = saConfigs.standard.initialTemperature;
+  let absoluteTemperature = saConfigs.standard.absoluteTemperature;
+  let saIterations = saConfigs.standard.saIterations;
+  let coolingRate = saConfigs.standard.coolingRate;
+
   // localStorage key
   const STORAGE_KEY = 'mts_sa_mode';
-  
+
+  function emitConfig() {
+    dispatch('change', {
+      initialTemperature,
+      absoluteTemperature,
+      saIterations,
+      coolingRate
+    });
+  }
+
+  function applyPreset(mode) {
+    const cfg = saConfigs[mode];
+    if (!cfg) return;
+    initialTemperature = cfg.initialTemperature;
+    absoluteTemperature = cfg.absoluteTemperature;
+    saIterations = cfg.saIterations;
+    coolingRate = cfg.coolingRate;
+  }
+
+  // 표시 가능한 프리셋 키 목록 (customizable=false 면 custom 제외)
+  $: visibleModes = Object.entries(saConfigs).filter(
+    ([mode]) => customizable || mode !== 'custom'
+  );
+
   // 컴포넌트 마운트 시 storage에서 값 로드
   onMount(() => {
     if (browser) {
       const savedMode = storage.load(STORAGE_KEY);
       if (savedMode && saConfigs[savedMode]) {
-        selectedMode = savedMode;
-        dispatch('change', saConfigs[selectedMode]);
-      } else {
-        // 기본값으로 초기화
-        dispatch('change', saConfigs[selectedMode]);
+        // customizable=false 인데 저장된 모드가 custom 이면 standard 로 폴백
+        if (savedMode === 'custom' && !customizable) {
+          selectedMode = 'standard';
+        } else {
+          selectedMode = savedMode;
+        }
       }
     }
+    // custom 이 아니면 프리셋 값으로 초기화
+    if (selectedMode !== 'custom') {
+      applyPreset(selectedMode);
+    }
+    emitConfig();
   });
-  
+
   // 라디오 버튼 변경 시 처리 함수
   function handleModeChange(event) {
     selectedMode = event.target.value;
@@ -59,7 +108,16 @@
       storage.save(STORAGE_KEY, selectedMode);
     }
 
-    dispatch('change', saConfigs[selectedMode]);
+    // custom 모드는 기존 입력값 유지, 그 외 모드는 프리셋 적용
+    if (selectedMode !== 'custom') {
+      applyPreset(selectedMode);
+    }
+    emitConfig();
+  }
+
+  function handleInputChange() {
+    // Custom 모드에서 input 변경 시 즉시 dispatch
+    emitConfig();
   }
 </script>
 
@@ -67,7 +125,7 @@
   <label class="form-label fw-bold">Simulated Annealing Mode</label>
 
   <div class="sa-mode-options">
-    {#each Object.entries(saConfigs) as [mode, config]}
+    {#each visibleModes as [mode, config]}
       <div class="form-check">
         <input
           class="form-check-input"
@@ -87,7 +145,70 @@
       </div>
     {/each}
   </div>
-  
+
+  {#if customizable}
+    <div class="sa-params mt-3">
+      <div class="row g-2">
+        <div class="col-6 col-md-3">
+          <label class="param-label" for="sa-init-temp">Initial Temp</label>
+          <input
+            id="sa-init-temp"
+            type="number"
+            class="form-control form-control-sm"
+            min="0"
+            step="any"
+            bind:value={initialTemperature}
+            on:input={handleInputChange}
+            disabled={selectedMode !== 'custom'}
+          />
+        </div>
+        <div class="col-6 col-md-3">
+          <label class="param-label" for="sa-abs-temp">Absolute Temp</label>
+          <input
+            id="sa-abs-temp"
+            type="number"
+            class="form-control form-control-sm"
+            min="0"
+            step="any"
+            bind:value={absoluteTemperature}
+            on:input={handleInputChange}
+            disabled={selectedMode !== 'custom'}
+          />
+        </div>
+        <div class="col-6 col-md-3">
+          <label class="param-label" for="sa-iterations">Iterations</label>
+          <input
+            id="sa-iterations"
+            type="number"
+            class="form-control form-control-sm"
+            min="1"
+            step="1"
+            bind:value={saIterations}
+            on:input={handleInputChange}
+            disabled={selectedMode !== 'custom'}
+          />
+        </div>
+        <div class="col-6 col-md-3">
+          <label class="param-label" for="sa-cooling-rate">Cooling Rate</label>
+          <input
+            id="sa-cooling-rate"
+            type="number"
+            class="form-control form-control-sm"
+            min="0.5"
+            max="0.999"
+            step="0.001"
+            bind:value={coolingRate}
+            on:input={handleInputChange}
+            disabled={selectedMode !== 'custom'}
+          />
+        </div>
+      </div>
+      <small class="form-text text-muted mt-2 d-block">
+        프리셋 선택 시 위 값들이 자동으로 채워집니다. <strong>Custom</strong>을 선택하면 직접 편집할 수 있습니다.
+      </small>
+    </div>
+  {/if}
+
   <small class="form-text text-muted mt-2">
     Higher modes provide better accuracy but take more time to calculate
   </small>
@@ -97,14 +218,14 @@
   .form-group {
     margin-bottom: 24px;
   }
-  
+
   .form-label {
     font-size: 0.875rem;
     color: #424242;
     letter-spacing: 0.0071428571em;
     margin-bottom: 16px;
   }
-  
+
   .sa-mode-options {
     display: flex;
     flex-direction: column;
@@ -182,5 +303,19 @@
 
   .form-check:has(.form-check-input:checked) .mode-title {
     color: #1976d2;
+  }
+
+  .sa-params {
+    padding: 12px 14px;
+    background: #fafafa;
+    border: 1px solid #eaeaea;
+    border-radius: 6px;
+  }
+
+  .param-label {
+    font-size: 0.75rem;
+    color: #555;
+    margin-bottom: 4px;
+    display: block;
   }
 </style>

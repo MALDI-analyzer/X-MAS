@@ -103,32 +103,36 @@ export function calculateSequenceSimilarityWithCounts(resultSequence: string, re
 
 
 // 기준 크기로 정렬 (시퀀스 유사도 고려)
-export function sortAmino(list: AminoModel[], compareValue: number, referenceSequence?: string): AminoModel[] {
+export function sortAmino(
+    list: AminoModel[],
+    compareValue: number,
+    referenceSequence?: string,
+    weights: { massDiff: number; seqDiff: number } = { massDiff: 0.9, seqDiff: 0.1 }
+): AminoModel[] {
     return list.sort((a, b) => {
         const diffA = Math.abs((a.weight ?? 0) - compareValue);
         const diffB = Math.abs((b.weight ?? 0) - compareValue);
-        
+
         // 참조 시퀀스가 있는 경우 시퀀스 유사도도 고려
         if (referenceSequence) {
             const seqSimilarityA = calculateSequenceSimilarity(a.code ?? '', referenceSequence);
             const seqSimilarityB = calculateSequenceSimilarity(b.code ?? '', referenceSequence);
-            
+
             // 분자량 차이를 정규화 (0-1 범위)
             const maxMassDiff = Math.max(diffA, diffB);
             const normalizedDiffA = maxMassDiff > 0 ? diffA / maxMassDiff : 0;
             const normalizedDiffB = maxMassDiff > 0 ? diffB / maxMassDiff : 0;
-            
+
             // 시퀀스 유사도를 역수로 변환 (높을수록 좋음 -> 낮을수록 좋음)
             const normalizedSeqA = (100 - seqSimilarityA) / 100;
             const normalizedSeqB = (100 - seqSimilarityB) / 100;
-            
-            // 복합 점수 계산 (분자량 정확도 90%, 시퀀스 유사도 10%) - difference 값 우선시
-            const scoreA = normalizedDiffA * 0.9 + normalizedSeqA * 0.1;
-            const scoreB = normalizedDiffB * 0.9 + normalizedSeqB * 0.1;
-            
+
+            const scoreA = normalizedDiffA * weights.massDiff + normalizedSeqA * weights.seqDiff;
+            const scoreB = normalizedDiffB * weights.massDiff + normalizedSeqB * weights.seqDiff;
+
             return scoreA - scoreB;
         }
-        
+
         // 참조 시퀀스가 없는 경우 기존 방식대로 분자량 차이만 고려
         return diffA - diffB;
     });

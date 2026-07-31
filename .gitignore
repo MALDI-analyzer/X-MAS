@@ -22,3 +22,7 @@ vite.config.ts.timestamp-*
 
 # Memory Bank
 memory-bank
+.omc/
+
+# Local build archives / audit dumps
+archive/

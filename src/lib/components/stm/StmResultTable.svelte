@@ -3,6 +3,7 @@
 
   export let possibilities = [];
   export let showByproducts = true;
+  export let runtimeMs = 0;
 
   // 필터링된 결과
   let filteredPossibilities = [];
@@ -148,6 +149,9 @@
         </label>
       {/each}
     </div>
+    {#if runtimeMs > 0}
+      <div class="runtime-display">Runtime: {runtimeMs.toFixed(1)} ms</div>
+    {/if}
   </div>
 
   {#key showByproducts}
@@ -224,11 +228,21 @@
     background: #f8f9fa;
     padding: 1rem;
     border-radius: 4px;
+    position: relative;
   }
 
   .filter-label {
     font-weight: 600;
     color: #495057;
+  }
+
+  .runtime-display {
+    position: absolute;
+    right: 1rem;
+    bottom: 0.5rem;
+    font-size: 0.8rem;
+    color: #6c757d;
+    font-variant-numeric: tabular-nums;
   }
 
   .filter-options {

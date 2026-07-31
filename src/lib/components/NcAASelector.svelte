@@ -11,7 +11,11 @@
 
 
     const dispatch = createEventDispatcher();
-  
+
+    // 호출 페이지에서 슬롯에 letter (B/J/O/U/X/Z) 배지를 표시할지 여부.
+    // benchmark 페이지처럼 letter↔슬롯 매핑을 명시해야 하는 곳에서만 true 로 켠다.
+    export let showLetterLabels = false;
+
     let savedData = writable([]);
     let selectedData = writable({
       B: null,
@@ -21,7 +25,7 @@
       X: null,
       Z: null
     });
-  
+
     let showModal = writable(false);
     let selectedKey = 'B'; // Default key
   
@@ -84,6 +88,8 @@
       }
       return currentData;
       });
+      // 부모에 변경 사실을 알려야 fullNcAA 가 최신화된다 (이전엔 dispatch 누락으로 stale).
+      confirmSelection();
     }
   
     // Get keys of selectedData
@@ -95,15 +101,18 @@
     <div id="selector" class="row g-3">
       {#each keys as key}
         <div class="col-md-4">
-          <div class="card h-100">
+          <div class="card h-100 slot-card">
+            {#if showLetterLabels}
+              <span class="letter-badge" aria-label="Slot letter {key}">{key}</span>
+            {/if}
             <div class="card-body d-flex align-items-center justify-content-center">
               {#if $selectedData[key]}
                 <NcAaSelectItem data={$selectedData[key]} {key} {onCancelSelectData}/>
               {:else}
-                <button 
-                  id="select-btn-{key}" 
+                <button
+                  id="select-btn-{key}"
                   class="btn btn-outline-secondary w-100"
-                  on:click={() => openModal(key)} 
+                  on:click={() => openModal(key)}
                   aria-label="Select {key} non-canonical monomer">
                   Select
                 </button>
@@ -139,5 +148,25 @@
     justify-content: center;
     align-items: center;
   }
+
+    .slot-card {
+      position: relative;
+    }
+
+    .letter-badge {
+      position: absolute;
+      top: 6px;
+      left: 8px;
+      background: #495057;
+      color: #fff;
+      padding: 2px 10px;
+      font-weight: 700;
+      font-size: 0.85rem;
+      border-radius: 4px;
+      font-family: 'Courier New', Courier, monospace;
+      letter-spacing: 0.5px;
+      z-index: 1;
+      pointer-events: none;
+    }
   </style>
   
